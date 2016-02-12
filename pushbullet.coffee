@@ -37,7 +37,7 @@ module.exports = (env) ->
       defaultDevice = @config.device
       defaultType = @config.type
         
-      if @config.channeltag != "" then defaultDevice = {channel_tag: @config.channeltag}
+      #if @config.channeltag != "" then defaultDevice = {channel_tag: @config.channeltag}
 
       # Helper to convert 'some text' to [ '"some text"' ]
       strToTokens = (str) => ["\"#{str}\""]
@@ -45,11 +45,12 @@ module.exports = (env) ->
       titleTokens = strToTokens defaultTitle
       messageTokens = strToTokens defaultMessage
       typeTokens = strToTokens defaultType
-      device = defaultDevice
+      deviceTokens = strToTokens defaultDevice
 
       setTitle = (m, tokens) => titleTokens = tokens
       setMessage = (m, tokens) => messageTokens = tokens
       setType = (m, tokens) => typeTokens = tokens
+      setDevice = (m, tokens) => deviceTokens = tokens
 
       m = M(input, context)
         .match('send ', optional: yes)
@@ -63,6 +64,9 @@ module.exports = (env) ->
 
       next = m.match(' type:').matchStringWithVars(setType)
       if next.hadMatch() then m = next
+      
+      next = m.match(' device:').matchStringWithVars(setDevice)
+      if next.hadMatch() then m = next
 
       if m.hadMatch()
         match = m.getFullMatch()
@@ -70,33 +74,35 @@ module.exports = (env) ->
         assert Array.isArray(titleTokens)
         assert Array.isArray(messageTokens)
         assert Array.isArray(typeTokens)
+        assert Array.isArray(deviceTokens)
 
         return {
           token: match
           nextInput: input.substring(match.length)
           actionHandler: new PushbulletActionHandler(
-            @framework, titleTokens, messageTokens, typeTokens, device
+            @framework, titleTokens, messageTokens, typeTokens, deviceTokens
           )
         }
             
 
   class PushbulletActionHandler extends env.actions.ActionHandler 
 
-    constructor: (@framework, @titleTokens, @messageTokens, @typeTokens, @device) ->
+    constructor: (@framework, @titleTokens, @messageTokens, @typeTokens, @deviceTokens) ->
 
     executeAction: (simulate, context) ->
       Promise.all( [
         @framework.variableManager.evaluateStringExpression(@titleTokens)
         @framework.variableManager.evaluateStringExpression(@messageTokens)
         @framework.variableManager.evaluateStringExpression(@typeTokens)
-      ]).then( ([title, message, type]) =>
+        @framework.variableManager.evaluateStringExpression(@deviceTokens)
+      ]).then( ([title, message, type, device]) =>
         switch type
           when "file"
             if simulate
               return __("would send file \"%s\" with title \"%s\"", message, title)
             else
               try
-                return pusherService.fileAsync(@device, message, title).then( =>
+                return pusherService.fileAsync(device, message, title).then( =>
                   __("pushbullet file sent successfully")
                 )
               catch e
@@ -105,7 +111,7 @@ module.exports = (env) ->
             if simulate
               return __("would push message \"%s\" with title \"%s\"", message, title)
             else
-              return pusherService.noteAsync(@device, title, message).then( =>
+              return pusherService.noteAsync(device, title, message).then( =>
                 __("pushbullet message sent successfully") 
               )
       )
